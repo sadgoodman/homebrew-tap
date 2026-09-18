@@ -1,0 +1,55 @@
+name: Update formulae
+
+# The tap keeps itself current by reading the upstream releases. Nothing needs
+# to be shared between the two repositories: no personal access token, nothing
+# to rotate or expire.
+on:
+  schedule:
+    # Hourly. Scheduled runs can be delayed when GitHub is busy, so a fresh
+    # release may take a little while to appear here; trigger the workflow
+    # manually for an immediate update.
+    - cron: '23 * * * *'
+  workflow_dispatch:
+  push:
+    paths:
+      - 'scripts/**'
+      - '.github/workflows/update.yml'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: update-formulae
+  cancel-in-progress: false
+
+jobs:
+  cli-proxy:
+    name: cli-proxy
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: regenerate Formula/cli-proxy.rb
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          UPSTREAM_REPO: sadgoodman/cli-proxy
+        run: python3 scripts/update_formula.py Formula/cli-proxy.rb
+
+      - name: check the formula is valid Ruby
+        run: ruby -c Formula/cli-proxy.rb
+
+      - name: commit if it changed
+        run: |
+          set -e
+          if git diff --quiet -- Formula; then
+            echo "Formula/cli-proxy.rb is already current"
+            exit 0
+          fi
+          version=$(grep -oE 'cli-proxy_[0-9]+\.[0-9]+\.[0-9]+_darwin_arm64' Formula/cli-proxy.rb \
+                    | head -1 | sed -E 's/cli-proxy_([0-9.]+)_darwin_arm64/\1/')
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add Formula
+          git commit -m "cli-proxy ${version}"
+          git push
+          echo "committed cli-proxy ${version}"
